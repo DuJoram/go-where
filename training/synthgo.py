@@ -52,22 +52,22 @@ class SynthGo(Dataset):
     def image_coord_to_grid(
         self, image_x: float, image_y: float
     ) -> Tuple[Tuple[int, int], Tuple[float, float]]:
-        grid_col = min(self._grid_size - 1, int(floor(image_x * self._grid_size)))
-        grid_row = min(self._grid_size - 1, int(floor(image_y * self._grid_size)))
+        cell_x = min(self._grid_size - 1, int(floor(image_x * self._grid_size)))
+        cell_y = min(self._grid_size - 1, int(floor(image_y * self._grid_size)))
 
-        grid_x = image_x * self._grid_size - grid_col
-        grid_y = image_y * self._grid_size - grid_row
-        return (grid_col, grid_row), (grid_x, grid_y)
+        grid_x = image_x * self._grid_size - cell_x
+        grid_y = image_y * self._grid_size - cell_y
+        return (cell_x, cell_y), (grid_x, grid_y)
 
     def __len__(self):
         return self._size
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         sample = np.load(os.path.join(self._processed_path, f"{idx:04d}.npz"))
         image = sample["image"]
         target = sample["target"]
 
-        image = torch.FloatTensor(image).permute(2, 0, 1) / 127.5 - 127.5
+        image = torch.FloatTensor(image).permute(2, 0, 1) / 127.5 - 1
         target = torch.FloatTensor(target).permute(2, 0, 1)
         return image, target
 
@@ -108,10 +108,10 @@ class SynthGo(Dataset):
 
                 target = np.zeros((self._grid_size, self._grid_size, 3))
                 for x, y in corners:
-                    (grid_col, grid_row), (grid_x, grid_y) = self.image_coord_to_grid(
+                    (cell_x, cell_y), (grid_x, grid_y) = self.image_coord_to_grid(
                         image_x=x, image_y=(1 - y)
                     )
-                    target[grid_row, grid_col] = [1, grid_y, grid_x]
+                    target[cell_y, cell_x] = [1, grid_y, grid_x]
 
                 if augmentation_dataset is not None:
                     background_image = augmentation_dataset[

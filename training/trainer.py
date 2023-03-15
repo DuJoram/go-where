@@ -14,19 +14,19 @@ from torch.utils.tensorboard import SummaryWriter
 def target_to_image_coords(
     image_shape: torch.Size,
     cell_size: int,
-    column: Union[int, torch.Tensor],
-    row: Union[int, torch.Tensor],
+    cell_x: Union[int, torch.Tensor],
+    cell_y: Union[int, torch.Tensor],
     target_coords: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     image_x = torch.clip(
-        torch.round(column * cell_size + target_coords[0, column, row] * cell_size),
+        torch.round(cell_x * cell_size + target_coords[1, cell_y, cell_x] * cell_size),
         0,
-        image_shape[-1],
+        image_shape[2],
     ).int()
     image_y = torch.clip(
-        torch.round(row * cell_size + target_coords[1, column, row] * cell_size),
+        torch.round(cell_y * cell_size + target_coords[0, cell_y, cell_x] * cell_size),
         0,
-        image_shape[-2],
+        image_shape[1],
     ).int()
     return image_x, image_y
 
@@ -207,19 +207,19 @@ class Trainer:
                 log_image = torch.round(image * 127.5 + 127.5).type(torch.uint8)
                 top4_x, top4_y = arg_top4_2d(prediction_p)
                 arg_top4 = torch.stack([top4_x, top4_y], dim=-1)
-                for row in range(prediction.shape[-1]):
-                    for column in range(prediction.shape[-2]):
-                        if target is not None and target_p[column, row] > 0.5:
+                for cell_y in range(prediction_p.shape[0]):
+                    for cell_x in range(prediction_p.shape[1]):
+                        if target is not None and target_p[cell_y, cell_x] > 0.5:
                             image_x, image_y = target_to_image_coords(
                                 image.shape,
                                 cell_size=self._cell_size,
-                                column=column,
-                                row=row,
+                                cell_x=cell_x,
+                                cell_y=cell_y,
                                 target_coords=target_coord,
                             )
                             log_image = torchvision.utils.draw_keypoints(
                                 log_image,
-                                keypoints=torch.FloatTensor([[[image_y, image_x]]]).to(
+                                keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(
                                     self._device
                                 ),
                                 colors="green",
@@ -229,27 +229,27 @@ class Trainer:
                         image_x, image_y = target_to_image_coords(
                             image.shape,
                             cell_size=self._cell_size,
-                            column=column,
-                            row=row,
+                            cell_x=cell_x,
+                            cell_y=cell_y,
                             target_coords=prediction_coord,
                         )
 
                         log_image = torchvision.utils.draw_keypoints(
                             log_image,
-                            keypoints=torch.FloatTensor([[[image_y, image_x]]]).to(
+                            keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(
                                 self._device
                             ),
                             colors="blue"
                             if torch.any(
                                 torch.all(
                                     arg_top4
-                                    == torch.tensor([column, row]).to(self._device),
+                                    == torch.tensor([cell_y, cell_x]).to(self._device),
                                     dim=-1,
                                 )
                             )
                             else "red",
                             radius=torch.round(
-                                torch.sigmoid(prediction_p[column, row]) * 5 + 1
+                                torch.sigmoid(prediction_p[cell_y, cell_x]) * 5 + 1
                             ).int(),
                         )
 
