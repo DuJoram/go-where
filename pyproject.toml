@@ -1,0 +1,8 @@
+[tool.black]
+line-length=120
+
+[tool.isort]
+profile="black"
+src_paths=["training"]
+multi_line_output=3
+sections=["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]

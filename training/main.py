@@ -12,7 +12,9 @@ from trainer import Trainer
 
 
 def train_val_split(
-    dataset: Dataset, validation_set_size: int = None, shuffle=False
+    dataset: Dataset,
+    validation_set_size: int = None,
+    shuffle=False,
 ) -> Tuple[Subset, Subset]:
     train_set_size = len(dataset) - validation_set_size
     indices = np.arange(len(dataset))
@@ -21,9 +23,18 @@ def train_val_split(
     train_set_indices = indices[:train_set_size]
     validation_set_indices = indices[train_set_size:]
 
-    train_dataset = Subset(dataset, train_set_indices)
-    validation_dataset = Subset(dataset, validation_set_indices)
-    return train_dataset, validation_dataset
+    train_dataset = Subset(
+        dataset,
+        train_set_indices,
+    )
+    validation_dataset = Subset(
+        dataset,
+        validation_set_indices,
+    )
+    return (
+        train_dataset,
+        validation_dataset,
+    )
 
 
 def main():
@@ -38,15 +49,23 @@ def main():
             torchvision.transforms.ToTensor(),
             #            torchvision.transforms.Grayscale(),
             torchvision.transforms.ColorJitter(
-                brightness=0.5, contrast=0.5, saturation=0.5, hue=0.5
+                brightness=0.5,
+                contrast=0.5,
+                saturation=0.5,
+                hue=0.5,
             ),
             #            torchvision.transforms.GaussianBlur(kernel_size=5, sigma=(0, 0.3)),
-            torchvision.transforms.Normalize(mean=0.5, std=0.5),
+            torchvision.transforms.Normalize(
+                mean=0.5,
+                std=0.5,
+            ),
         ]
     )
 
     caltech256 = torchvision.datasets.Caltech256(
-        root="data", transform=transform, download=True
+        root="data",
+        transform=transform,
+        download=True,
     )
 
     dataset = SynthGo(
@@ -59,8 +78,12 @@ def main():
         target_transform=lambda x: torch.FloatTensor(x).permute(2, 1, 0),
     )
 
-    train_dataset, validation_dataset = train_val_split(
-        dataset=dataset, validation_set_size=100
+    (
+        train_dataset,
+        validation_dataset,
+    ) = train_val_split(
+        dataset=dataset,
+        validation_set_size=100,
     )
 
     test_dataset = SynthGo(
@@ -105,7 +128,10 @@ def main():
         # persistent_workers=True,
     )
 
-    net = FCNet64(in_channels=3, out_channels=3)
+    net = FCNet64(
+        in_channels=3,
+        out_channels=3,
+    )
 
     trainer = Trainer(
         model=net,
@@ -120,7 +146,8 @@ def main():
     )
 
     trainer.fit(
-        train_dataloader=train_dataloader, validation_dataloader=validation_dataloader
+        train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
     )
 
 

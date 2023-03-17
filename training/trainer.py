@@ -1,12 +1,12 @@
 import math
-from typing import Tuple, Optional, List, Union, Any
+from typing import Any, List, Optional, Tuple, Union
 
 import cv2 as cv
 import torch
 import torchvision
 import torchvision.utils
 import tqdm
-from torch import optim, nn
+from torch import nn, optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -117,9 +117,7 @@ class Trainer:
 
                     for key, values in self._validation_scalar_log_buffer.items():
                         mean_value = torch.tensor(values).mean(dim=0)
-                        self._logger.add_scalar(
-                            key, mean_value, global_step=self.global_step
-                        )
+                        self._logger.add_scalar(key, mean_value, global_step=self.global_step)
 
             self._logger.flush()
             self._model.train()
@@ -138,9 +136,7 @@ class Trainer:
         self._logger.add_image(tag, image, global_step=self.global_step)
 
     def training_step(self, images, targets, batch_idx) -> torch.Tensor:
-        loss, loss_p, loss_loc = self.step_common(
-            images, targets, log_prefix="training"
-        )
+        loss, loss_p, loss_loc = self.step_common(images, targets, log_prefix="training")
         return loss
 
     def validation_step(self, images, targets, batch_idx):
@@ -172,19 +168,13 @@ class Trainer:
                     std=0.5,
                 )[[2, 1, 0]]
 
-                x_pad = (
-                    self._cell_size - frame.shape[2] % self._cell_size
-                ) % self._cell_size
-                y_pad = (
-                    self._cell_size - frame.shape[1] % self._cell_size
-                ) % self._cell_size
+                x_pad = (self._cell_size - frame.shape[2] % self._cell_size) % self._cell_size
+                y_pad = (self._cell_size - frame.shape[1] % self._cell_size) % self._cell_size
                 pad_left = math.ceil(x_pad / 2)
                 pad_right = x_pad - pad_left
                 pad_top = math.ceil(y_pad / 2)
                 pad_bottom = y_pad - pad_top
-                frame = torchvision.transforms.functional.pad(
-                    frame, padding=[pad_left, pad_top, pad_right, pad_bottom]
-                )
+                frame = torchvision.transforms.functional.pad(frame, padding=[pad_left, pad_top, pad_right, pad_bottom])
                 prefix_images.append(("live", [(frame, None)]))
             cam.release()
 
@@ -219,9 +209,7 @@ class Trainer:
                             )
                             log_image = torchvision.utils.draw_keypoints(
                                 log_image,
-                                keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(
-                                    self._device
-                                ),
+                                keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(self._device),
                                 colors="green",
                                 radius=4,
                             )
@@ -236,21 +224,16 @@ class Trainer:
 
                         log_image = torchvision.utils.draw_keypoints(
                             log_image,
-                            keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(
-                                self._device
-                            ),
+                            keypoints=torch.FloatTensor([[[image_x, image_y]]]).to(self._device),
                             colors="blue"
                             if torch.any(
                                 torch.all(
-                                    arg_top4
-                                    == torch.tensor([cell_y, cell_x]).to(self._device),
+                                    arg_top4 == torch.tensor([cell_y, cell_x]).to(self._device),
                                     dim=-1,
                                 )
                             )
                             else "red",
-                            radius=torch.round(
-                                torch.sigmoid(prediction_p[cell_y, cell_x]) * 5 + 1
-                            ).int(),
+                            radius=torch.round(torch.sigmoid(prediction_p[cell_y, cell_x]) * 5 + 1).int(),
                         )
 
                 self.log_image(
@@ -279,18 +262,17 @@ class Trainer:
 
         return loss, loss_p, loss_loc
 
-    def losses(
-        self, prediction: torch.Tensor, target: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def losses(self, prediction: torch.Tensor, target: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         target_p = target[:, 0]
         target_locs = target[:, 1:]
 
         prediction_p = prediction[:, 0]
         prediction_locs = prediction[:, 1:]
 
-        loss_p = nn.functional.binary_cross_entropy_with_logits(prediction_p, target_p)
+        # loss_p = nn.functional.binary_cross_entropy_with_logits(prediction_p, target_p)
+        loss_p = nn.functional.mse_loss(torch.sigmoid(prediction_p), target_p)
         locs_mask = target_p.squeeze().bool()
-        loss_loc = nn.functional.mse_loss(
+        loss_loc = nn.functional.l1_loss(
             prediction_locs.permute(0, 2, 3, 1)[locs_mask],
             target_locs.permute(0, 2, 3, 1)[locs_mask],
         )

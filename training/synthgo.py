@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from math import floor
-from typing import Tuple, Callable
+from typing import Callable, Tuple
 
 import numpy as np
 import torch
@@ -34,24 +34,15 @@ class SynthGo(Dataset):
         os.makedirs(train_processed_path, exist_ok=True)
         os.makedirs(test_processed_path, exist_ok=True)
 
-        self._size = len(
-            glob.glob(
-                os.path.join(self._dataset_path, "test" if test_split else "train")
-                + "/*.png"
-            )
-        )
-        self._processed_path = (
-            test_processed_path if test_split else train_processed_path
-        )
+        self._size = len(glob.glob(os.path.join(self._dataset_path, "test" if test_split else "train") + "/*.png"))
+        self._processed_path = test_processed_path if test_split else train_processed_path
 
         self.preprocess(
             augmentation_dataset=augmentation_dataset,
             shuffle_augmentation_dataset=shuffle_augmentation_dataset,
         )
 
-    def image_coord_to_grid(
-        self, image_x: float, image_y: float
-    ) -> Tuple[Tuple[int, int], Tuple[float, float]]:
+    def image_coord_to_grid(self, image_x: float, image_y: float) -> Tuple[Tuple[int, int], Tuple[float, float]]:
         cell_x = min(self._grid_size - 1, int(floor(image_x * self._grid_size)))
         cell_y = min(self._grid_size - 1, int(floor(image_y * self._grid_size)))
 
@@ -84,17 +75,13 @@ class SynthGo(Dataset):
             if augmentation_dataset is not None:
                 augmentation_dataset_indices = np.arange(len(augmentation_dataset))
                 if shuffle_augmentation_dataset:
-                    augmentation_dataset_indices = np.random.permutation(
-                        augmentation_dataset_indices
-                    )
+                    augmentation_dataset_indices = np.random.permutation(augmentation_dataset_indices)
 
             for idx in tqdm.trange(size):
                 image_path = os.path.join(data_path, f"{idx:04d}_image.png")
                 target_path = os.path.join(data_path, f"{idx:04d}_label.json")
 
-                processed_file = os.path.join(
-                    self._dataset_path, "processed", split, f"{idx:04d}.npz"
-                )
+                processed_file = os.path.join(self._dataset_path, "processed", split, f"{idx:04d}.npz")
 
                 if os.path.exists(processed_file):
                     continue
@@ -108,19 +95,13 @@ class SynthGo(Dataset):
 
                 target = np.zeros((self._grid_size, self._grid_size, 3))
                 for x, y in corners:
-                    (cell_x, cell_y), (grid_x, grid_y) = self.image_coord_to_grid(
-                        image_x=x, image_y=(1 - y)
-                    )
+                    (cell_x, cell_y), (grid_x, grid_y) = self.image_coord_to_grid(image_x=x, image_y=(1 - y))
                     target[cell_y, cell_x] = [1, grid_y, grid_x]
 
                 if augmentation_dataset is not None:
-                    background_image = augmentation_dataset[
-                        augmentation_dataset_indices[idx]
-                    ][0]
-                    background_image_squared = (
-                        torchvision.transforms.functional.center_crop(
-                            background_image, min(background_image.shape[1:])
-                        )
+                    background_image = augmentation_dataset[augmentation_dataset_indices[idx]][0]
+                    background_image_squared = torchvision.transforms.functional.center_crop(
+                        background_image, min(background_image.shape[1:])
                     )
                     background_image_resized = torchvision.transforms.functional.resize(
                         background_image_squared, image.size[-1]
@@ -129,10 +110,6 @@ class SynthGo(Dataset):
                     mask = mask[:, :, None]
                     image = np.uint8(
                         mask * np.array(image)
-                        + (1 - mask)
-                        * (
-                            background_image_resized.permute(1, 2, 0).numpy() * 127.5
-                            + 127.5
-                        )
+                        + (1 - mask) * (background_image_resized.permute(1, 2, 0).numpy() * 127.5 + 127.5)
                     )
                     np.savez(processed_file, image=image, target=target)
