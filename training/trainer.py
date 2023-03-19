@@ -1,4 +1,7 @@
+import json
 import math
+import os
+from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Tuple, Union
 
 import cv2 as cv
@@ -31,6 +34,18 @@ def target_to_image_coords(
     return image_x, image_y
 
 
+@dataclass
+class HParams:
+    cell_size: int
+    learning_rate: float
+    loss_p_weight: float
+    loss_loc_weight: float
+    max_epochs: int
+    validation_every_n_epoch: int
+    save_every_n_steps: int
+    global_step: int
+
+
 class Trainer:
     def __init__(
         self,
@@ -45,29 +60,47 @@ class Trainer:
         log_dir: str = "logs/",
         log_every_n_steps: int = 1,
         validation_every_n_epoch: int = 1,
+        save_every_n_steps: Optional[int] = None,
         device: Union[str, torch.device] = "cpu",
     ):
         self._model = model
         self._log_train_images = log_train_images
         self._log_test_images = log_test_images
-        self._cell_size = cell_size
-        self._learning_rate = learning_rate
-        self._loss_p_weight = loss_p_weight
-        self._loss_loc_weight = loss_loc_weight
-        self._max_epochs = max_epochs
 
-        self._validation_every_n_epoch = validation_every_n_epoch
+        self._hparams = HParams(
+            cell_size=cell_size,
+            learning_rate=learning_rate,
+            loss_p_weight=loss_p_weight,
+            loss_loc_weight=loss_loc_weight,
+            max_epochs=max_epochs,
+            validation_every_n_epoch=validation_every_n_epoch,
+            save_every_n_steps=save_every_n_steps,
+            global_step=0,
+        )
 
         if device == "gpu":
             device = "cuda"
+
         self._device = torch.device(device)
         self._model.to(self._device)
 
-        self._optimizer = optim.Adam(self._model.parameters(), lr=self._learning_rate)
+        self._optimizer = optim.Adam(self._model.parameters(), lr=self._hparams.learning_rate)
 
         self._validation_scalar_log_buffer = dict()
-        self._logger = SummaryWriter(log_dir=log_dir)
         self.global_step = 0
+
+        self._start_epoch = 0
+
+        self._log_dir = log_dir
+        self._checkpoints_dir = os.path.join(log_dir, "checkpoints")
+
+    @property
+    def global_step(self):
+        return self._hparams.global_step
+
+    @global_step.setter
+    def global_step(self, global_step):
+        self._hparams.global_step = global_step
 
     def fit(
         self,
@@ -81,13 +114,16 @@ class Trainer:
 
         num_test_samples = len(test_dataloader) if test_dataloader is not None else None
 
+        os.makedirs(self._checkpoints_dir, exist_ok=True)
+        self._logger = SummaryWriter(log_dir=self._log_dir)
+
         self._model.train()
-        for epoch in range(self._max_epochs):
+        for epoch in range(self._start_epoch, self._hparams.max_epochs):
             self._model.train()
             self._mode = "train"
             for idx, (images, targets) in tqdm.tqdm(
                 enumerate(train_dataloader),
-                desc=f"Training Epoch {epoch}/{self._max_epochs}",
+                desc=f"Training Epoch {epoch}/{self._hparams.max_epochs}",
                 total=num_training_steps,
             ):
                 self.global_step = epoch * num_training_steps + idx
@@ -99,14 +135,14 @@ class Trainer:
                 loss.backward()
                 self._optimizer.step()
 
-            if ((epoch + 1) % self._validation_every_n_epoch) == 0:
+            if ((epoch + 1) % self._hparams.validation_every_n_epoch) == 0:
                 self._model.eval()
                 self._mode = "validation"
 
                 with torch.no_grad():
                     for idx, (images, targets) in tqdm.tqdm(
                         enumerate(validation_dataloader),
-                        desc=f"Validation Epoch {epoch}/{self._max_epochs}",
+                        desc=f"Validation Epoch {epoch}/{self._hparams.max_epochs}",
                         total=num_validation_steps,
                     ):
                         images = images.to(self._device)
@@ -118,6 +154,11 @@ class Trainer:
                     for key, values in self._validation_scalar_log_buffer.items():
                         mean_value = torch.tensor(values).mean(dim=0)
                         self._logger.add_scalar(key, mean_value, global_step=self.global_step)
+
+            if (self._hparams.save_every_n_steps is not None) and (
+                ((epoch + 1) % self._hparams.save_every_n_steps) == 0
+            ):
+                self.save(epoch=epoch)
 
             self._logger.flush()
             self._model.train()
@@ -168,8 +209,8 @@ class Trainer:
                     std=0.5,
                 )[[2, 1, 0]]
 
-                x_pad = (self._cell_size - frame.shape[2] % self._cell_size) % self._cell_size
-                y_pad = (self._cell_size - frame.shape[1] % self._cell_size) % self._cell_size
+                x_pad = (self._hparams.cell_size - frame.shape[2] % self._hparams.cell_size) % self._hparams.cell_size
+                y_pad = (self._hparams.cell_size - frame.shape[1] % self._hparams.cell_size) % self._hparams.cell_size
                 pad_left = math.ceil(x_pad / 2)
                 pad_right = x_pad - pad_left
                 pad_top = math.ceil(y_pad / 2)
@@ -202,7 +243,7 @@ class Trainer:
                         if target is not None and target_p[cell_y, cell_x] > 0.5:
                             image_x, image_y = target_to_image_coords(
                                 image.shape,
-                                cell_size=self._cell_size,
+                                cell_size=self._hparams.cell_size,
                                 cell_x=cell_x,
                                 cell_y=cell_y,
                                 target_coords=target_coord,
@@ -216,7 +257,7 @@ class Trainer:
 
                         image_x, image_y = target_to_image_coords(
                             image.shape,
-                            cell_size=self._cell_size,
+                            cell_size=self._hparams.cell_size,
                             cell_x=cell_x,
                             cell_y=cell_y,
                             target_coords=prediction_coord,
@@ -253,7 +294,7 @@ class Trainer:
         prediction = self._model(images)
 
         loss_p, loss_loc = self.losses(prediction=prediction, target=targets)
-        loss = self._loss_p_weight * loss_p + self._loss_loc_weight * loss_loc
+        loss = self._hparams.loss_p_weight * loss_p + self._hparams.loss_loc_weight * loss_loc
 
         if log_prefix is not None:
             self.log_scalar(f"{log_prefix}/loss", loss)
@@ -278,3 +319,49 @@ class Trainer:
         )
 
         return loss_p, loss_loc
+
+    def save(self, epoch: int):
+        save_dir = os.path.join(self._checkpoints_dir, f"{epoch:06d}")
+        os.makedirs(save_dir, exist_ok=True)
+        hparams_file = os.path.join(save_dir, "hparams.json")
+        model_pt = os.path.join(save_dir, "model.pt")
+        optimizer_pt = os.path.join(save_dir, "optimizer.pt")
+
+        model_mode = self._model.training
+
+        self._model.eval()
+        model_state = self._model.state_dict()
+        torch.save(model_state, model_pt)
+        self._model.train(mode=model_mode)
+
+        optimizer_state = self._optimizer.state_dict()
+        torch.save(optimizer_state, optimizer_pt)
+
+        with open(hparams_file, "w") as f:
+            json.dump(asdict(self._hparams), f)
+
+    def load(self, checkpoint_path: str):
+        assert os.path.exists(checkpoint_path)
+        checkpoint_path = os.path.normpath(checkpoint_path)
+        hparams_file = os.path.join(checkpoint_path, "hparams.json")
+        model_pt = os.path.join(checkpoint_path, "model.pt")
+        optimizer_pt = os.path.join(checkpoint_path, "optimizer.pt")
+
+        self._checkpoints_dir, epoch_str = os.path.split(checkpoint_path)
+        self._log_dir = os.path.split(self._checkpoints_dir)[0]
+
+        # The epoch from the folder name has already been completed, so we need to start from the next one.
+        self._start_epoch = int(epoch_str) + 1
+
+        assert os.path.exists(hparams_file) and os.path.exists(model_pt) and os.path.exists(optimizer_pt)
+
+        model_mode = self._model.training
+        self._model.eval()
+        self._model.load_state_dict(torch.load(model_pt))
+        self._model.train(mode=model_mode)
+
+        self._optimizer.load_state_dict(torch.load(optimizer_pt))
+
+        with open(hparams_file, "r") as f:
+            hparams = json.load(f)
+        self._hparams = HParams(**hparams)
