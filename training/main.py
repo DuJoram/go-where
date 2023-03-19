@@ -1,3 +1,4 @@
+import argparse
 import datetime
 from typing import Tuple
 
@@ -39,10 +40,33 @@ def train_val_split(
 
 def main():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H%M%S")
-    BATCH_SIZE = 50
-    EPOCHS = 500
-    LEARNING_RATE = 1e-3
-    VALIDATION_INTERVAL = 5
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch-size", type=int, default=50, help="Batch size for training, evaluation and testing")
+    parser.add_argument("--epochs", type=int, default=500, help="Number of training epochs")
+    parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning Rate")
+    parser.add_argument(
+        "--probability-loss-fn",
+        type=str,
+        choices=["bce", "mse"],
+        default="bce",
+        help="Loss to use for the probability",
+    )
+    parser.add_argument("--probability-loss-weigth", type=float, default=1, help="Weight on the probability loss")
+    parser.add_argument(
+        "--location-loss-fn",
+        type=str,
+        choices=["l1", "l2", "mse"],
+        default="mse",
+        help="Loss function on the location predictions",
+    )
+    parser.add_argument("--location-loss-weight", type=float, default=1, help="Weight on the location loss")
+    parser.add_argument("--validation-interval", type=int, default=5, help="Evaluate every n epochs")
+    parser.add_argument("--checkpoint-interval", type=int, default=5, help="Save training checkpoint every n epochs")
+    parser.add_argument(
+        "--load-from-checkpoint", type=str, default=None, help="Path to checkpoint, e.g. 'logs/checkpoints/001337'"
+    )
+
+    args = parser.parse_args()
 
     transform = torchvision.transforms.Compose(
         [
@@ -102,7 +126,7 @@ def main():
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         num_workers=8,
         pin_memory=True,
         pin_memory_device="cuda",
@@ -112,7 +136,7 @@ def main():
     validation_dataloader = DataLoader(
         validation_dataset,
         shuffle=False,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         # num_workers=8,
         # pin_memory=True,
         # prefetch_factor=2,
@@ -121,7 +145,7 @@ def main():
     test_dataloader = DataLoader(
         test_dataset,
         shuffle=False,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         # num_workers=8,
         # pin_memory=True,
         # prefetch_factor=2,
@@ -135,15 +159,19 @@ def main():
 
     trainer = Trainer(
         model=net,
-        learning_rate=LEARNING_RATE,
-        max_epochs=EPOCHS,
+        learning_rate=args.learning_rate,
+        max_epochs=args.epochs,
         log_train_images=log_train_images,
         log_test_images=log_test_images,
         log_dir=f"logs/{timestamp}/",
         log_every_n_steps=1,
-        validation_every_n_epoch=VALIDATION_INTERVAL,
+        validation_every_n_epoch=args.validation_interval,
+        save_every_n_steps=args.checkpoint_interval,
         device="gpu",
     )
+
+    if args.load_from_checkpoint is not None:
+        trainer.load(args.load_from_checkpoint)
 
     trainer.fit(
         train_dataloader=train_dataloader,

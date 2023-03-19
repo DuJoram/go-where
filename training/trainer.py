@@ -38,7 +38,9 @@ def target_to_image_coords(
 class HParams:
     cell_size: int
     learning_rate: float
+    loss_p: str
     loss_p_weight: float
+    loss_loc: str
     loss_loc_weight: float
     max_epochs: int
     validation_every_n_epoch: int
@@ -50,7 +52,9 @@ class Trainer:
     def __init__(
         self,
         model: nn.Module,
+        loss_p: str = "bce",
         loss_p_weight: float = 1,
+        loss_loc: str = "mse",
         loss_loc_weight: float = 1,
         learning_rate=1e-3,
         max_epochs: int = 100,
@@ -70,7 +74,9 @@ class Trainer:
         self._hparams = HParams(
             cell_size=cell_size,
             learning_rate=learning_rate,
+            loss_p=loss_p,
             loss_p_weight=loss_p_weight,
+            loss_loc=loss_loc,
             loss_loc_weight=loss_loc_weight,
             max_epochs=max_epochs,
             validation_every_n_epoch=validation_every_n_epoch,
@@ -116,6 +122,16 @@ class Trainer:
 
         os.makedirs(self._checkpoints_dir, exist_ok=True)
         self._logger = SummaryWriter(log_dir=self._log_dir)
+
+        if self._hparams.loss_p == "mse":
+            self._loss_p = lambda pred, target: nn.functional.mse_loss(torch.sigmoid(pred), target)
+        elif self._hparams.loss_p == "bce":
+            self._loss_p = nn.functional.binary_cross_entropy_with_logits
+
+        if self._hparams.loss_loc in ["mse", "l2"]:
+            self._loss_loc = nn.functional.mse_loss
+        elif self._hparams.loss_loc == "l1":
+            self._loss_loc = nn.functional.l1_loss
 
         self._model.train()
         for epoch in range(self._start_epoch, self._hparams.max_epochs):
@@ -310,10 +326,10 @@ class Trainer:
         prediction_p = prediction[:, 0]
         prediction_locs = prediction[:, 1:]
 
-        # loss_p = nn.functional.binary_cross_entropy_with_logits(prediction_p, target_p)
-        loss_p = nn.functional.mse_loss(torch.sigmoid(prediction_p), target_p)
+        loss_p = self._loss_p(prediction_p, target_p)
         locs_mask = target_p.squeeze().bool()
-        loss_loc = nn.functional.l1_loss(
+
+        loss_loc = self._loss_loc(
             prediction_locs.permute(0, 2, 3, 1)[locs_mask],
             target_locs.permute(0, 2, 3, 1)[locs_mask],
         )
